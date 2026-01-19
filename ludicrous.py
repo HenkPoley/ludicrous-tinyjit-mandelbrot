@@ -69,7 +69,7 @@ def mandelbrot_tinygrad(width=640, height=360, iters=100, device=None, realize_e
   return counts.realize()
 
 # TinyJit wrapper: after capture, subsequent calls replay without Python overhead
-# (The tinygrad docs show this is where the big speedup comes from.)   [oai_citation:2‡Tinygrad Documentatie](https://docs.tinygrad.org/mnist/)
+# (The tinygrad docs show this is where the big speedup comes from.)
 @TinyJit
 def mandelbrot_tinyjit(width, height, iters, device):
   return mandelbrot_tinygrad(width, height, iters, device)
@@ -113,7 +113,7 @@ def time_run(label, fn, runs=3, device=None):
     t0 = time.perf_counter()
     _ = fn()
     # If you're on a GPU backend, synchronizing makes timings more honest.
-    # (Runtimes expose a synchronize method.)  [oai_citation:3‡Tinygrad Documentatie](https://docs.tinygrad.org/developer/runtime/)
+    # (Runtimes expose a synchronize method.)
     Device[device or Device.DEFAULT].synchronize()
     ts.append(time.perf_counter() - t0)
   print(f"{label}: " + ", ".join(f"{t*1000:.1f} ms" for t in ts))
@@ -142,11 +142,11 @@ if __name__ == "__main__":
   if args.warmup_size is None:
     args.warmup_size = "small" if args.full else "same"
 
-  print("Default device:", Device.DEFAULT)  # docs: CUDA on GPU boxes, else CPU  [oai_citation:4‡Tinygrad Documentatie](https://docs.tinygrad.org/mnist/)
-  print("Available devices:", list(Device.get_available_devices()))  # example output in issue  [oai_citation:5‡GitHub](https://github.com/tinygrad/tinygrad/issues/10414?utm_source=chatgpt.com)
+  print("Default device:", Device.DEFAULT)  # docs: CUDA on GPU boxes, else CPU
+  print("Available devices:", list(Device.get_available_devices()))  # example output in issue
 
   # Pick one of: "CPU", "METAL", "CUDA", "CL", "WEBGPU", etc.
-  # You can also enable/force backends with env vars like CUDA=1, METAL=1, CL=1, CPU=1.  [oai_citation:6‡Tinygrad Documentatie](https://docs.tinygrad.org/env_vars/)
+  # You can also enable/force backends with env vars like CUDA=1, METAL=1, CL=1, CPU=1.
   device = args.device
   print("Selected device:", device)
 
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     )
 
   # 3) tinygrad + TinyJit
-  # Expectation (per docs): first runs include capture/compile, then it gets *much* faster.  [oai_citation:7‡Tinygrad Documentatie](https://docs.tinygrad.org/mnist/)
+  # Expectation (per docs): first runs include capture/compile, then it gets *much* faster.
   if not args.skip_jit:
     # Warm up small workload to trigger kernel compile/capture before the JIT run.
     if args.warmup_size == "same":
