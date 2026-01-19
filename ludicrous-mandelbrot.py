@@ -118,6 +118,30 @@ def time_run(label, fn, runs=3, device=None):
     ts.append(time.perf_counter() - t0)
   print(f"{label}: " + ", ".join(f"{t*1000:.1f} ms" for t in ts))
 
+
+def summarize_output(data):
+  if isinstance(data, Tensor):
+    h, w = data.shape
+    total = float(data.sum().item())
+    return total, float(data[0, 0].item()), float(data[h - 1, w - 1].item())
+  h = len(data)
+  w = len(data[0]) if h else 0
+  total = float(sum(sum(row) for row in data))
+  return total, float(data[0][0]), float(data[h - 1][w - 1])
+
+
+def verify_outputs(py_out, tg_out, tj_out):
+  py_stats = summarize_output(py_out)
+  tg_stats = summarize_output(tg_out)
+  tj_stats = summarize_output(tj_out)
+  ok = py_stats == tg_stats == tj_stats
+  print(f"Verify outputs: {'OK' if ok else 'MISMATCH'}")
+  if not ok:
+    print(f"  python: {py_stats}")
+    print(f"  tinygrad: {tg_stats}")
+    print(f"  tinyjit: {tj_stats}")
+  return ok
+
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="TinyJit Mandelbrot benchmark.")
   parser.add_argument("--width", type=int, default=320)
@@ -130,6 +154,7 @@ if __name__ == "__main__":
   parser.add_argument("--runs-jit", type=int, default=5)
   parser.add_argument("--jit-chunk", type=int, default=0, help="Chunk JIT iterations to avoid huge captures.")
   parser.add_argument("--warmup-size", choices=["small", "same"], default=None)
+  parser.add_argument("--verify", action="store_true", help="Compare outputs across Python, tinygrad, and TinyJit.")
   parser.add_argument("--skip-python", action="store_true")
   parser.add_argument("--skip-tiny", action="store_true")
   parser.add_argument("--skip-jit", action="store_true")
@@ -147,61 +172,80 @@ if __name__ == "__main__":
 
   # Pick one of: "CPU", "METAL", "CUDA", "CL", "WEBGPU", etc.
   # You can also enable/force backends with env vars like CUDA=1, METAL=1, CL=1, CPU=1.
-  device = args.device
-  print("Selected device:", device)
+  devices = list(Device.get_available_devices()) if args.device == "all" else [args.device]
+  if not devices:
+    devices = [Device.DEFAULT]
 
   W, H, ITERS = args.width, args.height, args.iters
 
-  # 1) Pure Python baseline (slow)
-  if not args.skip_python:
-    print("Running pure Python baseline ...")
-    time_run("Pure Python (double loop)", lambda: mandelbrot_python(W, H, ITERS), runs=args.runs_python, device=device)
+  for device in devices:
+    print("Selected device:", device)
 
-  # 2) tinygrad without JIT (still benefits from kernel fusion / backend)
-  if not args.skip_tiny:
-    print("Running tinygrad (eager-ish) ...")
-    time_run(
-      "tinygrad (eager-ish, realized)",
-      lambda: mandelbrot_tinygrad(W, H, ITERS, device, realize_each=True),
-      runs=args.runs_tiny,
-      device=device,
-    )
+    if args.verify:
+      if args.skip_python or args.skip_tiny or args.skip_jit:
+        print("Verify outputs: skipped (requires Python, tinygrad, and TinyJit).")
+      else:
+        print("Verifying outputs ...")
+        py_out = mandelbrot_python(W, H, ITERS)
+        tg_out = mandelbrot_tinygrad(W, H, ITERS, device)
+        tj_out = (
+          mandelbrot_tinyjit_chunked(W, H, ITERS, device, chunk=args.jit_chunk)
+          if args.jit_chunk
+          else mandelbrot_tinyjit(W, H, ITERS, device)
+        )
+        Device[device].synchronize()
+        verify_outputs(py_out, tg_out, tj_out)
 
-  # 3) tinygrad + TinyJit
-  # Expectation (per docs): first runs include capture/compile, then it gets *much* faster.
-  if not args.skip_jit:
-    # Warm up small workload to trigger kernel compile/capture before the JIT run.
-    if args.warmup_size == "same":
-      w_warm, h_warm, i_warm = W, H, ITERS
-    else:
-      w_warm, h_warm, i_warm = 64, 48, 20
-    print(f"Warmup ({w_warm}x{h_warm}x{i_warm}) ...")
-    time_run(
-      "Warmup tinygrad",
-      lambda: mandelbrot_tinygrad(w_warm, h_warm, i_warm, device),
-      runs=1,
-      device=device,
-    )
-    time_run(
-      "Warmup TinyJit",
-      lambda: (
-        mandelbrot_tinyjit_chunked(w_warm, h_warm, i_warm, device, chunk=args.jit_chunk)
-        if args.jit_chunk
-        else mandelbrot_tinyjit(w_warm, h_warm, i_warm, device)
-      ),
-      runs=1,
-      device=device,
-    )
-    print("Running tinygrad + TinyJit ...")
-    if args.jit_chunk:
-      print(f"TinyJit chunk size: {args.jit_chunk}")
-    time_run(
-      "tinygrad + TinyJit",
-      lambda: (
-        mandelbrot_tinyjit_chunked(W, H, ITERS, device, chunk=args.jit_chunk)
-        if args.jit_chunk
-        else mandelbrot_tinyjit(W, H, ITERS, device)
-      ),
-      runs=args.runs_jit,
-      device=device,
-    )
+    # 1) Pure Python baseline (slow)
+    if not args.skip_python:
+      print("Running pure Python baseline ...")
+      time_run("Pure Python (double loop)", lambda: mandelbrot_python(W, H, ITERS), runs=args.runs_python, device=device)
+
+    # 2) tinygrad without JIT (still benefits from kernel fusion / backend)
+    if not args.skip_tiny:
+      print("Running tinygrad (eager-ish) ...")
+      time_run(
+        "tinygrad (eager-ish, realized)",
+        lambda: mandelbrot_tinygrad(W, H, ITERS, device, realize_each=True),
+        runs=args.runs_tiny,
+        device=device,
+      )
+
+    # 3) tinygrad + TinyJit
+    # Expectation (per docs): first runs include capture/compile, then it gets *much* faster.
+    if not args.skip_jit:
+      # Warm up small workload to trigger kernel compile/capture before the JIT run.
+      if args.warmup_size == "same":
+        w_warm, h_warm, i_warm = W, H, ITERS
+      else:
+        w_warm, h_warm, i_warm = 64, 48, 20
+      print(f"Warmup ({w_warm}x{h_warm}x{i_warm}) ...")
+      time_run(
+        "Warmup tinygrad",
+        lambda: mandelbrot_tinygrad(w_warm, h_warm, i_warm, device),
+        runs=1,
+        device=device,
+      )
+      time_run(
+        "Warmup TinyJit",
+        lambda: (
+          mandelbrot_tinyjit_chunked(w_warm, h_warm, i_warm, device, chunk=args.jit_chunk)
+          if args.jit_chunk
+          else mandelbrot_tinyjit(w_warm, h_warm, i_warm, device)
+        ),
+        runs=1,
+        device=device,
+      )
+      print("Running tinygrad + TinyJit ...")
+      if args.jit_chunk:
+        print(f"TinyJit chunk size: {args.jit_chunk}")
+      time_run(
+        "tinygrad + TinyJit",
+        lambda: (
+          mandelbrot_tinyjit_chunked(W, H, ITERS, device, chunk=args.jit_chunk)
+          if args.jit_chunk
+          else mandelbrot_tinyjit(W, H, ITERS, device)
+        ),
+        runs=args.runs_jit,
+        device=device,
+      )
