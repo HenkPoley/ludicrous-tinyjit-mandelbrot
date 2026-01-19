@@ -1,15 +1,15 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `ludicrous.py` contains the TinyJit Mandelbrot benchmark and demo entrypoint.
+- `ludicrous-mandelbrot.py` contains the TinyJit Mandelbrot benchmark and demo entrypoint.
 - `main.py` is a minimal hello-world entrypoint (handy for quick environment checks).
 - `pyproject.toml` defines the project metadata and Python dependencies.
 - `uv.lock` pins dependencies for repeatable installs when using `uv`.
 
 ## Build, Test, and Development Commands
 - `python main.py` runs the lightweight sanity check.
-- `python ludicrous.py` runs the Mandelbrot benchmark with TinyGrad/TinyJit.
-- `uv run python ludicrous.py` does the same using the locked environment (preferred if you use `uv`).
+- `python ludicrous-mandelbrot.py` runs the Mandelbrot benchmark with TinyGrad/TinyJit.
+- `uv run python ludicrous-mandelbrot.py` does the same using the locked environment (preferred if you use `uv`).
 - `uv sync` installs dependencies from `pyproject.toml`/`uv.lock`.
 
 ## Coding Style & Naming Conventions
@@ -28,5 +28,5 @@
 - If behavior changes, include before/after timings or device notes (e.g., `CPU`, `METAL`, `CUDA`).
 
 ## Configuration Tips
-- You can select backends via env vars like `CUDA=1`, `METAL=1`, or `CL=1` when running `ludicrous.py`.
+- You can select backends via env vars like `CUDA=1`, `METAL=1`, or `CL=1` when running `ludicrous-mandelbrot.py`.
 - If benchmarking on GPU, keep runs consistent and note the device in results.
